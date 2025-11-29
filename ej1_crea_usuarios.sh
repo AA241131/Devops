@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "comienzo"
+#echo "comienzo"
 
 #sanitizado de parametros
 #inicio variables
@@ -39,7 +39,6 @@ else
         shift $((OPTIND-1))
 fi
 
-
 #sanitizar archivo, que exista, que sea regular, y que tenga permisos de lectura
 archivo_absoluto=$(pwd)"/$1"
 if  [ ! -e "$archivo_absoluto" ]
@@ -66,49 +65,104 @@ function testear_linea {
         directorio_home=$(echo $1 | cut -d":" -f3 | sed "s/^[[:space:]]*//" )
         crear_home=$(echo $1 | cut -d":" -f4 | sed "s/^[[:space:]]*//" )
         shell_predeterminada=$(echo $1 | cut -d":" -f5 | sed "s/^[[:space:]]*//" )
+
+        #comentario
+        if [[ "$comentario" =~ ^[[:space:]]*$ ]]
+        then
+                comentario="<valor por defecto>"
+                cmd_comentario=""
+        else
+                cmd_comentario=$comentario
+        fi
+
         #test de nombre
         if [[ ! $nombre_de_usuario =~ ^[a-zA-Z0-9_.][a-zA-Z0-9_.-]*$ ]]
         then
-                echo "Nombre invalido"
+                echo "Nombre invalido" >&2
                 exit 4
+        else
+                cmd_nombre=$nombre_de_usuario
         fi
+
         #test de formato directorio
         directorio_padre=$(dirname "$directorio_home")
-        if [[ ! "$directorio_home" =~ ^[[:space:]]*/ ]]
+        if [[ "$directorio_home" =~ ^[[:space:]]*$ ]]
         then
-                echo "directorio no absoluto"
+                directorio_home="<valor por defecto>"
+                cmd_directorio_home=""
+        elif [[ ! "$directorio_home" =~ ^[[:space:]]*/ ]]
+        then
+                echo "directorio no absoluto" >&2
                 exit 4
         elif [[ ! -d "$directorio_padre" ]]
         then
-                echo $directorio_padre
-                echo "directorio padre no existe"
+                echo "directorio padre no existe" >&2
                 exit 4
         elif [[ -d "$directorio_home" ]]
         then
-                echo "directorio ya existe"
+                echo "directorio ya existe" >&2
                 exit 4
+        else
+                cmd_directorio_home="-d $directorio_home"
+        fi
+
         #test de booleana de directorio
+        if [[ "$crear_home" =~ ^[[:space:]]*$ ]]
+        then
+                crear_home="<valor por defeto>"
+                cmd_crear_home=""
         elif [[ ! "$crear_home" =~ ^[[:space:]]*(SI|NO)[[:space:]]*$ ]]
         then
-                echo $crear_home
-                echo "opcion crear directorio invalida"
+                echo "opcion crear directorio invalida" >&2
                 exit 4
+        elif [[ "$crear_home" =~ ^[[:space:]]*SI[[:space:]]*$ ]]
+        then
+                cmd_crear_home="-m"
+        else
+                cmd_crear_home="-M"
+        fi
+
         #test de shell
+        if [[ "$shell_predeterminada" =~ ^[[:space:]]*$ ]]
+        then
+                shell_predeterminada="<valor por defecto>"
+                cmd_shell=""
         elif ! grep -qE $shell_predeterminada /etc/shells
         then
-                echo "Shell invalido"
+                echo "Shell invalido" >&2
                 exit 4
+        else
+                cmd_shell="-s $shell_predeterminada"
         fi
 }
 
 function crear_usuario {
-        if [[ "$crear_home" =~ ^SI ]]
-        then
-                useradd $nombre_de_usuario -c $comentario -m -d $directorio_home -s $shell_predeterminada
-        else
-                useradd $nombre_de_usuario -c $comentario -M -s $shell_predeterminada
-        fi
+if $flag_contrasena
+then
+        contrasena_encriptada=$(openssl passwd -6 "$contrasena")
+        cmd_contrasena="-p $contrasena_encriptada"
+else
+        cmd_contrasena=""
+fi
+
+useradd "$cmd_nombre" -c "$cmd_comentario" $cmd_crear_home $cmd_directorio_home $cmd_shell $cmd_contrasena
+
+if [ "$flag_verbose" ]
+then
+        echo "Usuario ""$nombre_de_usuario"" creado con exito con datos indicados:"
+        echo -e "\tComentario: ""$comentario"
+        echo -e "\tDir home: ""$directorio_home"
+        echo -e "\tAsegurando la existencia de directorio home: ""$crear_home"
+        echo -e "\tShell por defecto: ""$shell_predeterminada"
+fi
 }
+
+#comprobacion de sudo usando useradd --help
+if ! sudo -n useradd --help >/dev/null 2>&1
+then
+        echo "Faltan permisos de sudo" >&2
+        exit 8
+fi
 
 #logica principal
 iteraciones=$(wc -l "$archivo_absoluto" | cut -d" " -f1)
@@ -116,14 +170,12 @@ iteraciones=$(wc -l "$archivo_absoluto" | cut -d" " -f1)
 for i in $( seq 1 "$iteraciones")
 do
         extraer_linea $i "$archivo_absoluto"
-        echo "linea:" $i "$linea"
         testear_linea "$linea"
-        #crear_usuario "$linea"
-
+        crear_usuario "$linea"
 done
 
 #extraer_linea $1
 #testear_linea "$linea"
 #crear_usuario "$linea"
 
-echo "fin"
+#echo "fin"
