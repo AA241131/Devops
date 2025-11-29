@@ -16,4 +16,9 @@
     - Crear los usuarios con una contraseña pasada como parámetro de la opción
 
     2. Forma del script
+    >ej1_crea_usuarios.sh [-i] [-c contraseña ] 
     
+    Archivo_con_los_usuarios_a_crear
+    En caso de faltar opciones en el archivo, se deben usar los defaults del comando useradd o los que se definan como predeterminados. 
+    Archivo de usuarios: 
+    la información será separada por ":" t tiene una sintaxis como sigue. 
