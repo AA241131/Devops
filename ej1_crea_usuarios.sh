@@ -2,6 +2,60 @@
 
 echo "comienzo"
 
+#sanitizado de parametros
+#inicio variables
+flag_verbose=false
+flag_contrasena=false
+
+while getopts "ic:" modificador
+do
+        case $modificador in
+                i)      flag_verbose=true
+                ;;
+                c)      flag_contrasena=true
+                        contrasena=$OPTARG
+                        #sanitizado de contrasena
+                        if  [ -z "$contrasena" ]
+                        then
+                                echo "contrasena vacia" >&2
+                                exit 5
+                        elif [[ "$contrasena" == -* ]]
+                        then
+                                echo "opcion luego de contrasena" >&2
+                                exit 5
+                        fi
+                ;;
+                *)      echo "modificador "-$OPTARG" inexistente, solo se aceptan -i y -c" >&2
+                        exit 6
+                ;;
+        esac
+done
+
+if [ $# -ne $OPTIND ]
+then
+        echo "Cantidad de parametros incorrecta, solo se reciben los modificadores -i, y -c seguido de una contrasena, y un directorio valido" >&2
+        exit 7
+else
+        shift $((OPTIND-1))
+fi
+
+
+#sanitizar archivo, que exista, que sea regular, y que tenga permisos de lectura
+archivo_absoluto=$(pwd)"/$1"
+if  [ ! -e "$archivo_absoluto" ]
+then
+        echo "archivo no existe" >&2
+        exit 1
+elif [ ! -f "$archivo_absoluto" ]
+then
+        echo "archivo no regular" >&2
+        exit 2
+elif [ ! -r "$archivo_absoluto" ]
+then
+        echo "no hay permiso de lectura" >&2
+        exit 3
+fi
+
 function extraer_linea {
         linea=$(head -n1 $1)
 #       tail -n +2 $1 > restante.txt
