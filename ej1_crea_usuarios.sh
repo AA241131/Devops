@@ -57,8 +57,7 @@ then
 fi
 
 function extraer_linea {
-        linea=$(head -n1 $1)
-#       tail -n +2 $1 > restante.txt
+        linea=$(head -n $1 $2 | tail -n 1)
 }
 
 function testear_linea {
@@ -111,8 +110,20 @@ function crear_usuario {
         fi
 }
 
-extraer_linea $1
-testear_linea "$linea"
-crear_usuario "$linea"
+#logica principal
+iteraciones=$(wc -l "$archivo_absoluto" | cut -d" " -f1)
+
+for i in $( seq 1 "$iteraciones")
+do
+        extraer_linea $i "$archivo_absoluto"
+        echo "linea:" $i "$linea"
+        testear_linea "$linea"
+        #crear_usuario "$linea"
+
+done
+
+#extraer_linea $1
+#testear_linea "$linea"
+#crear_usuario "$linea"
 
 echo "fin"
