@@ -27,7 +27,7 @@ object_name = []
 for i in file_path:
     object_name.append(i.split('/')[-1])
 
-Crear un bucket de S3
+#Crear un bucket de S3
 try:
     s3.create_bucket(Bucket=bucket_name)
     print(f"Bucket creado: {bucket_name}")
