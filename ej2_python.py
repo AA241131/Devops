@@ -173,7 +173,7 @@ try:
     # Permitir puerto 3306 desde la EC2
     ec2.authorize_security_group_ingress(
         GroupId=sg_id,
-        SourceSecurityGroupName=sg_ec2,'                   
+        SourceSecurityGroupName=sg_ec2,                  
     )
 except ClientError as e:
     if 'InvalidGroup.Duplicate' in str(e):
