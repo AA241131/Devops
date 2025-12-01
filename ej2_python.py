@@ -10,7 +10,7 @@ ec2 = boto3.client('ec2')
 ssm = boto3.client('ssm')
 rds_client = boto3.client('rds')
 
-"""
+
 # Parámetros
 bucket_name = 'aa24131-bucket-obligatorio'
 path_al_script = os.path.dirname(os.path.abspath(__file__))
@@ -51,7 +51,7 @@ for i in range(len(file_path)):
     except ClientError as e:
         print(f"Error subiendo archivo: {e}") 
     
-"""
+
 
 
 
@@ -60,7 +60,7 @@ user_data = '''#!/bin/bash
 dnf clean all
 dnf makecache
 dnf -y update
-dnf -y install httpd php php-cli php-fpm php-common php-mysqlnd mariadb105
+dnf -y install httpd php php-cli php-fpm php-common php-mysqlnd mariadb105 nmap-ncat
 systemctl enable --now httpd
 systemctl enable --now php-fpm
 echo '<FilesMatch \.php$>
@@ -78,8 +78,6 @@ aws s3 cp s3://aa24131-bucket-obligatorio/login.js /var/www/html/login.js
 aws s3 cp s3://aa24131-bucket-obligatorio/login.php /var/www/html/login.php
 aws s3 cp s3://aa24131-bucket-obligatorio/init_db.sql /var/www/init_db.sql
 '''
-
-"""
 
 #Crear una instancia EC2 asociada al Instance Profile del rol LabRole
 response = ec2.run_instances(
@@ -103,10 +101,10 @@ print(f"Instancia creada con ID: {instance_id} y tag 'webserver-devops'")
 
 
 
-"""
+
 #comprobar el funcionamiento con aws ssm start-session --target instance_id
 
-"""
+
 # Crear instancia RDS MySQL
 
 
@@ -136,7 +134,7 @@ except Exception as e:
 #print(json.dumps(response, indent=2, default=str))
 
 #Endpoint = response['DBInstance']['InstanceId']
-"""
+
 db_instance_identifier = 'rds-obligatorio' #sacar despues
 
 
@@ -145,11 +143,11 @@ print("Esperando a que la instancia RDS esté disponible...")
 rds_client.get_waiter('db_instance_available').wait(DBInstanceIdentifier=db_instance_identifier)
 print(f"Instancia DB {db_instance_identifier} está en estado running.")
 
-"""
+
 # Comprobar a que la instancia EC2 esté en estado running
 ec2.get_waiter('instance_status_ok').wait(InstanceIds=[instance_id])
 print(f"Instancia EC2 {instance_id} está en estado running.")
-"""
+
 
 #The endpoint might not be shown for instances with the status of creating.
 #sacar endpoint de la instancia RDS
@@ -162,28 +160,9 @@ print(f"Endpoint de la instancia RDS: {endpoint[0]}:{endpoint[1]}")
 sg_name = 'webserver-a-rds-sg'
 ip_ec2 = ec2.describe_instances(Filters=[{'Name': 'tag:Name', 'Values': ['webserver-devops']}])['Reservations'][0]['Instances'][0]['PublicIpAddress']
 print(f"IP pública de la instancia EC2: {ip_ec2}")
+sg_ec2 = ec2.describe_instances(Filters=[{'Name': 'tag:Name', 'Values': ['webserver-devops']}])['Reservations'][0]['Instances'][0]['SecurityGroups'][0]['GroupName']
+print(f"SG de la instancia EC2: {sg_ec2}")
 
-"""esto no anda porque caduco db_security_group, usar VPC security groups
-try:
-    response = rds_client.create_db_security_group(
-        DBSecurityGroupName=sg_name,
-        DBSecurityGroupDescription='Permitir trafico desde la instancia EC2 a la RDS por el puerto correspondiente'
-    )
-    sg_id = response['DBSecurityGroup']['DBSecurityGroupName']
-    print(f"Security Group creado: {sg_id}")
-    
-    rds_client.authorize_db_security_group_ingress(
-        DBSecurityGroupName=sg_id,
-        CIDRIP=ip_ec2
-    )
-     
-except ClientError as e:
-    if 'InvalidGroup.Duplicate' in str(e):
-        sg_id = ec2.describe_security_groups(GroupNames=[sg_name])['SecurityGroups'][0]['GroupId']
-        print(f"Security Group ya existe: {sg_id}")
-    else:
-        raise
-"""
 try:
     response = ec2.create_security_group(
         GroupName=sg_name,
@@ -194,14 +173,7 @@ try:
     # Permitir puerto 3306 desde la EC2
     ec2.authorize_security_group_ingress(
         GroupId=sg_id,
-        IpPermissions=[
-            {
-                'IpProtocol': 'tcp',
-                'FromPort': 3306,
-                'ToPort': 3306,
-                'IpRanges': [{'CidrIp': ip_ec2+'/32'}]
-            }
-        ]
+        SourceSecurityGroupName=sg_ec2,'                   
     )
 except ClientError as e:
     if 'InvalidGroup.Duplicate' in str(e):
@@ -217,6 +189,20 @@ rds_client.modify_db_instance(DBInstanceIdentifier=db_instance_identifier, VpcSe
 print(f"SG {sg_id} asociado a la instancia {db_instance_identifier}")
 
 
+#crear base de datos con mysql -h rds-obligatorio.cddpiv5wo1l7.us-east-1.rds.amazonaws.com -u admin -pDevOps-RDS-Admin < /var/www/init_db.sql
+#arreglar el SG, no usar IP sino el SG de la EC2
+
+"""
+sudo tee /var/www/.env >/dev/null <<'ENV'
+   DB_HOST=endpoint[0]
+   DB_NAME='demo_db'
+   DB_USER=master_username
+   DB_PASS=master_user_password
+
+   APP_USER=<APP_USER>
+   APP_PASS=<APP_PASS>
+   ENV
 
 
 
+"""
