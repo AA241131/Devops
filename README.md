@@ -25,6 +25,17 @@
         **7** - cantidad de parámetros incorrectos
         **8**- permisos de sudo
     
-        
+2. ### Script de Python
 
+    1. Descripción del script: 
+        Crea un bucket s3, una instancia ec2 y una base de datos rds en aws. Carga estas instancias con una app de recursos humanos que es accesible desde una IP publica
+    2. Requerimientos: 
+        Python 3.10 o más reciente
+        sudo dnf install python3.12
+        pip
+        dnf install python3.12-pip
+        boto3
+        pip install boto3
+
+        
 
