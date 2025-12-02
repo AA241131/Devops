@@ -80,6 +80,10 @@ function testear_linea {
         then
                 echo "Nombre invalido" >&2
                 exit 4
+        elif grep -q "^$1:" /etc/passwd
+        then
+                echo "Usuario ya existe" >&2
+                exit 4
         else
                 cmd_nombre=$nombre_de_usuario
         fi
