@@ -18,6 +18,7 @@ file_path = ['/archivos_bucket/app.css',
             '/archivos_bucket/app.js',
             '/archivos_bucket/config.php',
             '/archivos_bucket/index.html',
+            '/archivos_bucket/index.php',
             '/archivos_bucket/login.css',
             '/archivos_bucket/login.html',
             '/archivos_bucket/login.js',
@@ -50,10 +51,9 @@ for i in range(len(file_path)):
         print(f"El archivo {file_path[i]} no existe")
     except ClientError as e:
         print(f"Error subiendo archivo: {e}") 
-    
 
 
-
+#Crear una instancia EC2 asociada al Instance Profile del rol LabRole
 
 #no necesita sudo para user_data
 user_data = '''#!/bin/bash
@@ -72,6 +72,7 @@ aws s3 cp s3://aa24131-bucket-obligatorio/app.css /var/www/html/app.css
 aws s3 cp s3://aa24131-bucket-obligatorio/app.js /var/www/html/app.js
 aws s3 cp s3://aa24131-bucket-obligatorio/config.php /var/www/html/config.php
 aws s3 cp s3://aa24131-bucket-obligatorio/index.html /var/www/html/index.html
+aws s3 cp s3://aa24131-bucket-obligatorio/index.php /var/www/html/index.php
 aws s3 cp s3://aa24131-bucket-obligatorio/login.css /var/www/html/login.css
 aws s3 cp s3://aa24131-bucket-obligatorio/login.html /var/www/html/login.html
 aws s3 cp s3://aa24131-bucket-obligatorio/login.js /var/www/html/login.js
@@ -79,7 +80,7 @@ aws s3 cp s3://aa24131-bucket-obligatorio/login.php /var/www/html/login.php
 aws s3 cp s3://aa24131-bucket-obligatorio/init_db.sql /var/www/init_db.sql
 '''
 
-#Crear una instancia EC2 asociada al Instance Profile del rol LabRole
+
 response = ec2.run_instances(
     ImageId='ami-0fa3fe0fa7920f68e',
     MinCount=1,
@@ -99,21 +100,49 @@ ec2.create_tags(
 
 print(f"Instancia creada con ID: {instance_id} y tag 'webserver-devops'")
 
+#Crear SG para acceso web a la instancia EC2
+sg_name_ec2 = 'web-ec2-sg'
+try:
+    response = ec2.create_security_group(
+        GroupName=sg_name_ec2,
+        Description='Permitir trafico web desde cualquier IP'
+    )
+    sg_id_ec2 = response['GroupId']
+    print(f"Security Group creado: {sg_id_ec2}")
+    ec2.authorize_security_group_ingress(
+        GroupId=sg_id_ec2,
+        IpPermissions=[
+            {
+                'IpProtocol': 'tcp',
+                'FromPort': 80,
+                'ToPort': 80,
+                'IpRanges': [{'CidrIp': '0.0.0.0/0'}]
+            }
+        ]
+    )
+except ClientError as e:
+    if 'InvalidGroup.Duplicate' in str(e):
+        sg_id_ec2 = ec2.describe_security_groups(GroupNames=[sg_name_ec2])['SecurityGroups'][0]['GroupId']
+        print(f"Security Group ya existe: {sg_id_ec2}")
+    else:
+        raise
 
+# Asociar el SG a la instancia EC2 creada anteriormente
+ec2.modify_instance_attribute(InstanceId=instance_id, Groups=[sg_id_ec2])
+print(f"SG {sg_id_ec2} asociado a la instancia {instance_id}")
 
+print("Se permite el tráfico web a la instancia EC2.")
 
 #comprobar el funcionamiento con aws ssm start-session --target instance_id
 
-
 # Crear instancia RDS MySQL
-
 
 db_instance_identifier = 'rds-obligatorio'
 db_instance_class = 'db.t3.medium'  
 engine = 'mysql'
 #engine_version = '10.6.14'  
 master_username = 'admin'
-master_user_password = open("password.txt", 'r').read().strip()  # Asegúrate de que el archivo password.txt contenga la contraseña
+master_user_password = open(path_al_script +'/password.txt', 'r').read().strip()  # Asegúrate de que el archivo password.txt contenga la contraseña
 allocated_storage = int(os.environ.get('RDS_ALLOCATED_STORAGE', 20))  #20GB o RDS_ALLOCATED_STORAGE
 publicly_accessible = True
 
@@ -135,18 +164,33 @@ except Exception as e:
 
 #Endpoint = response['DBInstance']['InstanceId']
 
-db_instance_identifier = 'rds-obligatorio' #sacar despues
-
-
 #agregar waiter para esperar a que la instancia RDS esté disponible
 print("Esperando a que la instancia RDS esté disponible...")    
 rds_client.get_waiter('db_instance_available').wait(DBInstanceIdentifier=db_instance_identifier)
 print(f"Instancia DB {db_instance_identifier} está en estado running.")
 
 
-# Comprobar a que la instancia EC2 esté en estado running
-ec2.get_waiter('instance_status_ok').wait(InstanceIds=[instance_id])
-print(f"Instancia EC2 {instance_id} está en estado running.")
+# agarrar el id de la ec2, running usando filtro por tag Name
+instances = ec2.describe_instances(
+    Filters=[
+        {'Name': 'tag:Name', 'Values': ['webserver-devops']},
+        {'Name': 'instance-state-name', 'Values': ['running']}
+    ]
+)
+
+ec2_instance_id = None
+
+for reservation in instances['Reservations']:
+    for instance in reservation['Instances']:
+        ec2_instance_id = instance['InstanceId']
+        break
+    if ec2_instance_id:
+        break
+
+if not ec2_instance_id:
+    raise Exception("No se encontró ninguna instancia 'webserver-devops' en estado RUNNING.")
+
+print("Instancia EC2:", ec2_instance_id)
 
 
 #The endpoint might not be shown for instances with the status of creating.
@@ -154,7 +198,6 @@ print(f"Instancia EC2 {instance_id} está en estado running.")
 response = rds_client.describe_db_instances(DBInstanceIdentifier=db_instance_identifier)
 endpoint = [response['DBInstances'][0]['Endpoint']['Address'], response['DBInstances'][0]['Endpoint']['Port']]
 print(f"Endpoint de la instancia RDS: {endpoint[0]}:{endpoint[1]}")
-
 
 # crear SG para permitir el acceso a la instancia RDS desde la instancia EC2
 sg_name = 'webserver-a-rds-sg'
@@ -173,7 +216,7 @@ try:
     # Permitir puerto 3306 desde la EC2
     ec2.authorize_security_group_ingress(
         GroupId=sg_id,
-        SourceSecurityGroupName=sg_ec2,                  
+        SourceSecurityGroupName=sg_ec2,                   
     )
 except ClientError as e:
     if 'InvalidGroup.Duplicate' in str(e):
@@ -189,7 +232,7 @@ rds_client.modify_db_instance(DBInstanceIdentifier=db_instance_identifier, VpcSe
 print(f"SG {sg_id} asociado a la instancia {db_instance_identifier}")
 
 
-#crear base de datos con mysql -h rds-obligatorio.cddpiv5wo1l7.us-east-1.rds.amazonaws.com -u admin -pDevOps-RDS-Admin < /var/www/init_db.sql
+#crear base de datos con mysql -h rds-obligatorio.cddpiv5wo1l7.us-east-1.rds.amazonaws.com -u admin -ppw < /var/www/init_db.sql
 #arreglar el SG, no usar IP sino el SG de la EC2
 
 """
@@ -203,6 +246,46 @@ sudo tee /var/www/.env >/dev/null <<'ENV'
    APP_PASS=<APP_PASS>
    ENV
 
-
-
 """
+
+
+
+#enviar los comandos por boto3 en lugar de ssm
+# Enviar comando para crear la base de datos
+commands = [
+    f"mysql -h {endpoint[0]} -u {master_username} -p{master_user_password} < /var/www/init_db.sql",
+
+    f"""sudo tee /var/www/.env > /dev/null << 'EOF'
+DB_HOST={endpoint[0]}
+DB_NAME=demo_db
+DB_USER={master_username}
+DB_PASS={master_user_password}
+
+APP_USER=admin
+APP_PASS=admin123
+EOF""",
+
+    "sudo chown apache:apache /var/www/.env",
+    "sudo chmod 600 /var/www/.env",
+    "sudo chown -R apache:apache /var/www/html",
+    "sudo systemctl restart httpd php-fpm"
+]
+
+response = ssm.send_command(
+    InstanceIds=[ec2_instance_id],
+    DocumentName="AWS-RunShellScript",
+    Parameters={'commands': commands}
+)
+command_id = response['Command']['CommandId']
+
+# Esperar resultado
+while True:
+    output = ssm.get_command_invocation(CommandId=command_id, InstanceId=ec2_instance_id)
+    if output['Status'] in ['Success', 'Failed', 'Cancelled', 'TimedOut']:
+        break
+    time.sleep(2)
+print("Output:")
+print(output['StandardOutputContent'])
+
+print("Configuración completa. Navegue a la IP pública de la instancia EC2 para acceder a la aplicación web.")
+print(f"Navegar a http://{ip_ec2}/login.php para acceder a la aplicación web.")
